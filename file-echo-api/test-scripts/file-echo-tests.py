@@ -116,7 +116,7 @@ def run_tests(c):
     expected = {'error':{'data':{'stdout':'','data':'Error in $: key \"params\" not found','stderr':''},'code':-32700,'message':'Parse error'},'jsonrpc':'2.0','id':None}
     assert(actual == expected)
 
-   # invalid request (missing JSON-RPC required fields)
+   # invalid request (Bad JSON)
     invalid_request = "BAAAAAD JSON"
     c.process.send_one_message(invalid_request)
     time.sleep(2) # pause before fetching response so we don't just read the previous response whose JSON-RPC id is `null`
