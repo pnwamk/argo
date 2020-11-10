@@ -13,7 +13,7 @@ import argo.interaction
 from argo.interaction import HasProtocolState
 from argo.connection import DynamicSocketProcess, ServerConnection, ServerProcess, StdIOProcess
 from . import cryptoltypes
-from BitVector import BitVector
+from . import bits
 
 
 
@@ -61,16 +61,16 @@ def from_cryptol_arg(val : Any) -> Any:
             enc = val['encoding']
             width = val['width']
             if enc == 'base64':
-                data = BitVector(rawbytes=base64.b64decode(val['data'].encode('ascii')))
+                n = int.from_bytes(
+                    base64.b64decode(val['data'].encode('ascii')),
+                    byteorder='big')
             elif enc == 'hex':
-                data = BitVector(rawbytes=bytes.fromhex(extend_hex(val['data'])))
+                n = int.from_bytes(
+                    bytes.fromhex(extend_hex(val['data'])),
+                    byteorder='big')
             else:
                 raise ValueError("Unknown encoding " + str(enc))
-            length = data.length()
-            if not length == width:
-                extra = length - width
-                data = data[extra:length]
-            return data
+            return bits.Bits(width, n)
         else:
             raise ValueError("Unknown expression tag " + tag)
     else:

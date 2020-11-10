@@ -2,8 +2,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from abc import ABCMeta, abstractmethod
 import base64
-from math import ceil
-import BitVector #type: ignore
+from . import bits
 
 from typing import Any, Dict, Iterable, List, NoReturn, Optional, TypeVar, Union
 
@@ -127,6 +126,7 @@ class CryptolType:
             return self.convert(val)
 
     def convert(self, val : Any) -> Any:
+        """Convert a python value into a properly encoded JSON-compatible value to be sent to the cryptol server."""
         if isinstance(val, bool):
             return val
         elif isinstance(val, tuple) and val == ():
@@ -150,17 +150,14 @@ class CryptolType:
                     'encoding': 'base64',
                     'width': 8 * len(val),
                     'data': base64.b64encode(val).decode('ascii')}
-        elif isinstance(val, BitVector.BitVector):
-            bv = val.deep_copy()
-            if not val.length() % 4 == 0:
-                # pad if needed so it can be converted to hex
-                bv.pad_from_left(4 - (val.length() % 4))
+        elif isinstance(val, bits.Bits):
             return {'expression': 'bits',
                     'encoding': 'hex',
-                    'width': val.length(), # N.B. original length, not padded
-                    'data': bv.get_bitvector_in_hex()}
+                    'width': len(val),
+                    # N.B. Bits' method `hex` includes padding beyond width for hex format in string if necessary.
+                    'data': val.hex()[2:]}
         else:
-            raise TypeError("Unsupported value: " + str(val))
+            raise TypeError("Unsupported value: " + repr(val))
 
 class Var(CryptolType):
     def __init__(self, name : str, kind : CryptolKind) -> None:
@@ -180,30 +177,32 @@ class Function(CryptolType):
     def __repr__(self) -> str:
         return f"Function({self.domain!r}, {self.range!r})"
 
-class Bitvector(CryptolType):
+class BitVector(CryptolType):
     def __init__(self, width : CryptolType) -> None:
         self.width = width
 
     def __repr__(self) -> str:
-        return f"Bitvector({self.width!r})"
+        return f"BitVector({self.width!r})"
 
     def convert(self, val : Any) -> Any:
         # XXX figure out what to do when width is not evenly divisible by 8
         if isinstance(val, int):
             w = eval_numeric(self.width, None)
             if w is not None:
-                return self.convert(int.to_bytes(val, int(w / 8), 'big', signed=True))
+                if val < 0 or val.bit_length() > w:
+                    raise ValueError(f"{val!r} is not a valid {w!r}-bit bit vector value (it must be non-negative and representable by {w!r} bits).")
+                return self.convert(bits.Bits(w, val))
             else:
-                raise ValueError(f"Insufficent type information to serialize int as bitvector")
+                raise ValueError(f"Insufficent type information to serialize int as a bit vector")
         elif isinstance(val, bytearray) or isinstance(val, bytes):
             return {'expression': 'bits',
                     'encoding': 'base64',
                     'width': eval_numeric(self.width, 8 * len(val)),
                     'data': base64.b64encode(val).decode('ascii')}
-        elif isinstance(val, BitVector.BitVector):
+        elif isinstance(val, bits.Bits):
             return CryptolType.convert(self, val)
         else:
-            raise ValueError(f"Not supported as bitvector: {val!r}")
+            raise ValueError(f"Not supported as bit vector: {val!r}")
 
 def eval_numeric(t : Any, default : A) -> Union[int, A]:
     if isinstance(t, Num):
@@ -407,7 +406,7 @@ def to_type(t : Any) -> CryptolType:
     elif t['type'] == 'function':
         return Function(to_type(t['domain']), to_type(t['range']))
     elif t['type'] == 'bitvector':
-        return Bitvector(to_type(t['width']))
+        return BitVector(to_type(t['width']))
     elif t['type'] == 'number':
         return Num(t['value'])
     elif t['type'] == 'Bit':
